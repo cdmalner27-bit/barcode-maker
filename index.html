@@ -186,6 +186,7 @@ label.scan {
   letter-spacing: 0.04em;
   padding: 14px 4px;
 }
+#view-runs .field > input { flex: none; }
 .runs button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
 .tabs { display: flex; gap: 8px; }
 .tabs button { flex: 1; padding: 10px 6px; }
@@ -253,6 +254,20 @@ label.scan {
     </div>
     <div class="runs" id="run-list" role="group" aria-label="Runs"></div>
     <p class="hint">Tap a run to show its barcode.</p>
+    <button type="button" id="run-remove" hidden>Remove this run</button>
+
+    <div class="field">
+      <h2>Add a run</h2>
+      <label for="run-new-name">Run name</label>
+      <input type="text" id="run-new-name" maxlength="8" autocomplete="off" autocapitalize="characters" autocorrect="off" spellcheck="false" enterkeyhint="next">
+      <label for="run-new-code">Barcode number</label>
+      <div class="inputrow">
+        <input type="text" id="run-new-code" inputmode="numeric" autocomplete="off" autocorrect="off" spellcheck="false" enterkeyhint="done">
+        <button type="button" id="run-scan">Scan it</button>
+      </div>
+      <button type="button" class="primary" id="run-add">Add run</button>
+      <p class="hint" id="run-status" aria-live="polite">Runs you add are kept on this phone.</p>
+    </div>
   </section>
 
   <section id="view-login" role="tabpanel" aria-labelledby="tab-login" hidden>
@@ -304,14 +319,21 @@ label.scan {
 
   var capsBtn = document.getElementById("caps");
   var keepCase = false; // true while the box holds scanned or saved text in its original case
-  var state = { text: "", tab: "make", saved: [], login: "", run: "EDP" };
+  var state = { text: "", tab: "make", saved: [], login: "", run: "EDP", customRuns: [] };
   var firstRun = true;
   try {
     var stored = JSON.parse(localStorage.getItem(KEY) || "null");
     if (stored) {
       firstRun = false;
       if (stored.tab === "login" || stored.tab === "runs") state.tab = stored.tab;
-      if (RUNS.some(function (r) { return r.name === stored.run; })) state.run = stored.run;
+      if (Array.isArray(stored.customRuns)) {
+        stored.customRuns.forEach(function (r) {
+          if (r && typeof r.name === "string" && typeof r.code === "string" && r.name && r.code) {
+            state.customRuns.push({ name: r.name, code: r.code });
+          }
+        });
+      }
+      if (typeof stored.run === "string") state.run = stored.run;
       if (typeof stored.login === "string") state.login = stored.login;
       if (Array.isArray(stored.saved)) {
         var seen = {};
@@ -324,7 +346,7 @@ label.scan {
   } catch (e) {}
 
   function persist() {
-    try { localStorage.setItem(KEY, JSON.stringify({ tab: state.tab, saved: state.saved, run: state.run, login: typeof savedLogin === "string" ? savedLogin : state.login })); } catch (e) {}
+    try { localStorage.setItem(KEY, JSON.stringify({ tab: state.tab, saved: state.saved, run: state.run, customRuns: state.customRuns, login: typeof savedLogin === "string" ? savedLogin : state.login })); } catch (e) {}
   }
 
   // Draws a Code 128 barcode into codeEl. Returns an error sentence, or "" on success.
@@ -494,7 +516,10 @@ label.scan {
     return next();
   }
 
+  var scanTarget = null;      // when set, the next scan goes to this function instead of the Make box
+  var statusEl = scanStatus;  // where camera messages are shown
   function loadScanned(text) {
+    if (scanTarget) { var t = scanTarget; scanTarget = null; t(text); return; }
     state.text = text;
     keepCase = true;
     input.value = state.text;
@@ -557,10 +582,10 @@ label.scan {
   }
   function startScan() {
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-      scanStatus.textContent = "This browser cannot open the camera here. Use a photo instead.";
+      statusEl.textContent = "This browser cannot open the camera here. Use a photo instead.";
       return;
     }
-    scanStatus.textContent = "Opening the camera…";
+    statusEl.textContent = "Opening the camera…";
     navigator.mediaDevices.getUserMedia({
       audio: false,
       video: { facingMode: { ideal: "environment" }, width: { ideal: 1280 }, height: { ideal: 720 } }
@@ -572,16 +597,18 @@ label.scan {
       video.srcObject = s;
       scanner.hidden = false;
       scanning = true;
-      scanStatus.textContent = "Point the camera at a barcode and it loads above.";
+      statusEl.textContent = "Point the camera at a barcode and it loads above.";
       var p = video.play();
       if (p && p.catch) p.catch(function () {});
       tick();
     }).catch(function () {
-      scanStatus.textContent = "The camera is blocked. Allow camera access for this site in your browser settings, or use a photo instead.";
+      statusEl.textContent = "The camera is blocked. Allow camera access for this site in your browser settings, or use a photo instead.";
     });
   }
-  document.getElementById("scan").addEventListener("click", startScan);
-  document.getElementById("scanner-close").addEventListener("click", stopScan);
+  document.getElementById("scan").addEventListener("click", function () {
+    scanTarget = null; statusEl = scanStatus; startScan();
+  });
+  document.getElementById("scanner-close").addEventListener("click", function () { scanTarget = null; stopScan(); });
   document.addEventListener("visibilitychange", function () { if (document.hidden && scanning) stopScan(); });
 
   photo.addEventListener("change", function () {
@@ -602,24 +629,77 @@ label.scan {
   tabs.runs.addEventListener("click", function () { setTab("runs"); });
 
   var runList = document.getElementById("run-list");
+  var runRemove = document.getElementById("run-remove");
+  var runNewName = document.getElementById("run-new-name");
+  var runNewCode = document.getElementById("run-new-code");
+  var runStatus = document.getElementById("run-status");
+  function allRuns() { return RUNS.concat(state.customRuns); }
+  function findRun(name) {
+    return allRuns().filter(function (r) { return r.name === name; })[0];
+  }
+  function isCustom(name) {
+    return state.customRuns.some(function (r) { return r.name === name; });
+  }
   function renderRun() {
-    var run = RUNS.filter(function (r) { return r.name === state.run; })[0] || RUNS[0];
+    var run = findRun(state.run) || RUNS[0];
+    state.run = run.name;
     document.getElementById("run-name").textContent = run.name;
     show("run-code", "run-caption", "run-message", run.code, run.code);
+    runRemove.hidden = !isCustom(run.name);
+    runRemove.textContent = "Remove " + run.name;
     Array.prototype.forEach.call(runList.children, function (b) {
       b.setAttribute("aria-pressed", b.dataset.run === run.name ? "true" : "false");
     });
   }
-  RUNS.forEach(function (r) {
-    var b = document.createElement("button");
-    b.type = "button"; b.dataset.run = r.name; b.textContent = r.name;
-    b.addEventListener("click", function () {
-      state.run = r.name; persist(); renderRun();
-      window.scrollTo({ top: 0, behavior: "smooth" });
+  function renderRunList() {
+    runList.innerHTML = "";
+    allRuns().forEach(function (r) {
+      var b = document.createElement("button");
+      b.type = "button"; b.dataset.run = r.name; b.textContent = r.name;
+      b.addEventListener("click", function () {
+        state.run = r.name; persist(); renderRun();
+        window.scrollTo({ top: 0, behavior: "smooth" });
+      });
+      runList.appendChild(b);
     });
-    runList.appendChild(b);
+    renderRun();
+  }
+  runNewName.addEventListener("input", function () {
+    var up = runNewName.value.toUpperCase();
+    if (up !== runNewName.value) runNewName.value = up;
   });
-  renderRun();
+  document.getElementById("run-scan").addEventListener("click", function () {
+    statusEl = runStatus;
+    scanTarget = function (text) {
+      runNewCode.value = text;
+      runStatus.textContent = "Scanned " + text + ". Give it a name, then tap Add run.";
+    };
+    startScan();
+  });
+  document.getElementById("run-add").addEventListener("click", function () {
+    var name = runNewName.value.trim().toUpperCase();
+    var code = runNewCode.value.trim();
+    if (!name) { runStatus.textContent = "Type a run name first."; return; }
+    if (!code) { runStatus.textContent = "Type or scan the barcode number first."; return; }
+    if (findRun(name)) { runStatus.textContent = name + " is already in the list. Use a different name."; return; }
+    var probe = document.createElement("div");
+    if (draw(probe, code)) { runStatus.textContent = "That number cannot be made into a Code 128 barcode. Check it for odd characters."; return; }
+    state.customRuns.push({ name: name, code: code });
+    state.run = name;
+    persist(); renderRunList();
+    runNewName.value = ""; runNewCode.value = "";
+    runStatus.textContent = "Added " + name + ". It is kept on this phone.";
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  });
+  runRemove.addEventListener("click", function () {
+    var name = state.run;
+    if (!isCustom(name)) return;
+    state.customRuns = state.customRuns.filter(function (r) { return r.name !== name; });
+    state.run = RUNS[0].name;
+    persist(); renderRunList();
+    runStatus.textContent = "Removed " + name + ".";
+  });
+  renderRunList();
 
   render();
   var loginInput = document.getElementById("login-text");
@@ -652,7 +732,7 @@ label.scan {
     state.login = loginInput.value.trim();
     savedLogin = state.login;
     var ok = true;
-    try { localStorage.setItem(KEY, JSON.stringify({ tab: state.tab, saved: state.saved, run: state.run, login: savedLogin })); }
+    try { localStorage.setItem(KEY, JSON.stringify({ tab: state.tab, saved: state.saved, run: state.run, customRuns: state.customRuns, login: savedLogin })); }
     catch (e) { ok = false; }
     if (ok) loginHint();
     else loginStatus.textContent = "This browser would not save the code. Check that it is not in private or incognito mode.";
