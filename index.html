@@ -166,6 +166,23 @@ label.scan {
 }
 .scanner-bar p { flex: 1; margin: 0; font-size: 15px; }
 .scanner-bar button { background: #fff; color: #000; border-color: #fff; }
+#run-name {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 44px;
+  line-height: 1;
+  letter-spacing: 0.04em;
+  color: #000;
+}
+.runs { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.runs button {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 18px;
+  letter-spacing: 0.04em;
+  padding: 14px 4px;
+}
+.runs button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
 .tabs { display: flex; gap: 8px; }
 .tabs button { flex: 1; padding: 10px 6px; }
 .tabs button[aria-selected="true"] { background: var(--ink); color: var(--bg); border-color: var(--ink); }
@@ -186,6 +203,7 @@ label.scan {
 
   <div class="tabs" role="tablist">
     <button type="button" role="tab" id="tab-make" aria-controls="view-make" aria-selected="true">Make</button>
+    <button type="button" role="tab" id="tab-runs" aria-controls="view-runs" aria-selected="false">Runs</button>
     <button type="button" role="tab" id="tab-login" aria-controls="view-login" aria-selected="false">Login</button>
   </div>
 
@@ -222,6 +240,17 @@ label.scan {
     </div>
   </section>
 
+  <section id="view-runs" role="tabpanel" aria-labelledby="tab-runs" hidden>
+    <div class="panel" aria-live="polite">
+      <div id="run-name"></div>
+      <div class="code" id="run-code"></div>
+      <div class="caption" id="run-caption"></div>
+      <div class="message" id="run-message" hidden></div>
+    </div>
+    <div class="runs" id="run-list" role="group" aria-label="Runs"></div>
+    <p class="hint">Tap a run to show its barcode.</p>
+  </section>
+
   <section id="view-login" role="tabpanel" aria-labelledby="tab-login" hidden>
     <div class="panel">
       <div class="code" id="login-code"></div>
@@ -256,18 +285,29 @@ label.scan {
   var input = document.getElementById("text");
   var savedEl = document.getElementById("saved");
   var emptyEl = document.getElementById("empty");
-  var tabs = { make: document.getElementById("tab-make"), login: document.getElementById("tab-login") };
-  var views = { make: document.getElementById("view-make"), login: document.getElementById("view-login") };
+  var tabs = { make: document.getElementById("tab-make"), runs: document.getElementById("tab-runs"), login: document.getElementById("tab-login") };
+  var views = { make: document.getElementById("view-make"), runs: document.getElementById("view-runs"), login: document.getElementById("view-login") };
+  var RUNS = [
+    { name: "EDP", code: "114000000311" },
+    { name: "EPR", code: "114000000313" },
+    { name: "FDX", code: "114000000152" },
+    { name: "ECF", code: "114000000298" },
+    { name: "MFV", code: "114000000264" },
+    { name: "MFM", code: "114000000295" },
+    { name: "PDO", code: "114000000250" },
+    { name: "PDM", code: "114000000296" }
+  ];
 
   var capsBtn = document.getElementById("caps");
   var keepCase = false; // true while the box holds scanned or saved text in its original case
-  var state = { text: "", tab: "make", saved: [], login: "" };
+  var state = { text: "", tab: "make", saved: [], login: "", run: "EDP" };
   var firstRun = true;
   try {
     var stored = JSON.parse(localStorage.getItem(KEY) || "null");
     if (stored) {
       firstRun = false;
-      if (stored.tab === "login") state.tab = "login";
+      if (stored.tab === "login" || stored.tab === "runs") state.tab = stored.tab;
+      if (RUNS.some(function (r) { return r.name === stored.run; })) state.run = stored.run;
       if (typeof stored.login === "string") state.login = stored.login;
       if (Array.isArray(stored.saved)) {
         var seen = {};
@@ -280,7 +320,7 @@ label.scan {
   } catch (e) {}
 
   function persist() {
-    try { localStorage.setItem(KEY, JSON.stringify({ tab: state.tab, saved: state.saved, login: typeof savedLogin === "string" ? savedLogin : state.login })); } catch (e) {}
+    try { localStorage.setItem(KEY, JSON.stringify({ tab: state.tab, saved: state.saved, run: state.run, login: typeof savedLogin === "string" ? savedLogin : state.login })); } catch (e) {}
   }
 
   // Draws a Code 128 barcode into codeEl. Returns an error sentence, or "" on success.
@@ -555,6 +595,27 @@ label.scan {
 
   tabs.make.addEventListener("click", function () { setTab("make"); });
   tabs.login.addEventListener("click", function () { setTab("login"); });
+  tabs.runs.addEventListener("click", function () { setTab("runs"); });
+
+  var runList = document.getElementById("run-list");
+  function renderRun() {
+    var run = RUNS.filter(function (r) { return r.name === state.run; })[0] || RUNS[0];
+    document.getElementById("run-name").textContent = run.name;
+    show("run-code", "run-caption", "run-message", run.code, run.code);
+    Array.prototype.forEach.call(runList.children, function (b) {
+      b.setAttribute("aria-pressed", b.dataset.run === run.name ? "true" : "false");
+    });
+  }
+  RUNS.forEach(function (r) {
+    var b = document.createElement("button");
+    b.type = "button"; b.dataset.run = r.name; b.textContent = r.name;
+    b.addEventListener("click", function () {
+      state.run = r.name; persist(); renderRun();
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    });
+    runList.appendChild(b);
+  });
+  renderRun();
 
   render();
   var loginInput = document.getElementById("login-text");
@@ -587,7 +648,7 @@ label.scan {
     state.login = loginInput.value.trim();
     savedLogin = state.login;
     var ok = true;
-    try { localStorage.setItem(KEY, JSON.stringify({ tab: state.tab, saved: state.saved, login: savedLogin })); }
+    try { localStorage.setItem(KEY, JSON.stringify({ tab: state.tab, saved: state.saved, run: state.run, login: savedLogin })); }
     catch (e) { ok = false; }
     if (ok) loginHint();
     else loginStatus.textContent = "This browser would not save the code. Check that it is not in private or incognito mode.";
