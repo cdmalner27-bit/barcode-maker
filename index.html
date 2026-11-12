@@ -1,0 +1,578 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Barcodes">
+<title>Barcode Maker</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Condensed:wght@500;600&family=IBM+Plex+Sans:wght@400;500&display=swap" rel="stylesheet">
+<style>
+/* Layout: one phone-width column. Two tabs (Make, Login). Barcode panel on top of each, always white for scanners. */
+:root {
+  --bg: #eef1f4;
+  --surface: #ffffff;
+  --ink: #16202b;
+  --muted: #5b6875;
+  --line: #cfd6de;
+  --accent: #0b5cad;
+  --accent-ink: #ffffff;
+  --font-display: "IBM Plex Sans Condensed", "Arial Narrow", sans-serif;
+  --font-body: "IBM Plex Sans", system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #10161d;
+    --surface: #1a232d;
+    --ink: #e8edf2;
+    --muted: #9aa7b4;
+    --line: #33404d;
+    --accent: #6cb2ff;
+    --accent-ink: #0b1a2a;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #10161d;
+  --surface: #1a232d;
+  --ink: #e8edf2;
+  --muted: #9aa7b4;
+  --line: #33404d;
+  --accent: #6cb2ff;
+  --accent-ink: #0b1a2a;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-body);
+  font-size: 16px;
+  line-height: 1.45;
+}
+main {
+  max-width: 520px;
+  margin: 0 auto;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+section { display: flex; flex-direction: column; gap: 16px; }
+section[hidden] { display: none; }
+h1 {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 22px;
+  letter-spacing: 0.02em;
+  margin: 0;
+}
+h2 {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 15px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin: 0;
+}
+/* Code panels stay white in both themes so scanners get full contrast. */
+.panel {
+  background: #ffffff;
+  color: #000000;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  min-height: 220px;
+  padding: 20px 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  overflow: hidden;
+}
+.code { width: 100%; display: flex; justify-content: center; }
+.panel svg { display: block; width: 100%; height: auto; }
+.caption {
+  font-family: var(--font-mono);
+  font-size: 15px;
+  color: #000;
+  word-break: break-all;
+  text-align: center;
+}
+#login-caption { font-size: 22px; letter-spacing: 0.12em; }
+.message {
+  font-size: 15px;
+  color: #b3261e;
+  text-align: center;
+  max-width: 34ch;
+}
+.field { display: flex; flex-direction: column; gap: 6px; }
+label { font-size: 14px; font-weight: 500; color: var(--muted); }
+.inputrow { display: flex; gap: 8px; }
+input[type="text"] {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: 18px;
+  padding: 12px;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+button {
+  font-family: var(--font-body);
+  font-size: 15px;
+  font-weight: 500;
+  padding: 12px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--ink);
+  cursor: pointer;
+}
+button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+:is(button, input):focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+label.scan {
+  display: block;
+  text-align: center;
+  font-size: 15px;
+  font-weight: 500;
+  padding: 12px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--ink);
+  cursor: pointer;
+}
+#photo { position: absolute; width: 1px; height: 1px; opacity: 0; overflow: hidden; }
+#photo:focus-visible + .hint { outline: 3px solid var(--accent); outline-offset: 2px; }
+#scanner {
+  position: fixed; inset: 0; z-index: 10;
+  background: #000; color: #fff;
+  display: flex; flex-direction: column;
+}
+#scanner[hidden] { display: none; }
+#video { flex: 1; min-height: 0; width: 100%; object-fit: cover; background: #000; }
+.scanner-bar {
+  display: flex; align-items: center; gap: 12px;
+  padding: 12px 16px calc(12px + env(safe-area-inset-bottom, 0px));
+}
+.scanner-bar p { flex: 1; margin: 0; font-size: 15px; }
+.scanner-bar button { background: #fff; color: #000; border-color: #fff; }
+.tabs { display: flex; gap: 8px; }
+.tabs button { flex: 1; padding: 10px 6px; }
+.tabs button[aria-selected="true"] { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+#saved { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+#saved li { display: flex; gap: 6px; }
+#saved .use {
+  flex: 1; min-width: 0; text-align: left;
+  font-family: var(--font-mono); font-size: 15px;
+  overflow-wrap: anywhere;
+}
+#saved .del { color: var(--muted); }
+#empty, .hint { font-size: 14px; color: var(--muted); margin: 0; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Barcode Maker</h1>
+
+  <div class="tabs" role="tablist">
+    <button type="button" role="tab" id="tab-make" aria-controls="view-make" aria-selected="true">Make</button>
+    <button type="button" role="tab" id="tab-login" aria-controls="view-login" aria-selected="false">Login</button>
+  </div>
+
+  <section id="view-make" role="tabpanel" aria-labelledby="tab-make">
+    <div class="panel" aria-live="polite">
+      <div class="code" id="code"></div>
+      <div class="caption" id="caption"></div>
+      <div class="message" id="message" hidden></div>
+    </div>
+
+    <div class="field">
+      <label for="text">Text to encode</label>
+      <div class="inputrow">
+        <input type="text" id="text" autocomplete="off" autocapitalize="characters" autocorrect="off" spellcheck="false" enterkeyhint="done">
+        <button type="button" id="clear" aria-label="Clear text">Clear</button>
+      </div>
+      <button type="button" id="caps" hidden>Change to capitals</button>
+      <p class="hint">Code 128. Typed letters become capitals. Scanned text keeps its original case. Best under about 25 characters on a phone screen.</p>
+    </div>
+
+    <div class="field">
+      <button type="button" class="primary" id="scan">Scan a barcode with the camera</button>
+      <label class="scan" for="photo">Use a photo instead</label>
+      <input type="file" id="photo" accept="image/*" capture="environment">
+      <p class="hint" id="scan-status" aria-live="polite">Point the camera at a barcode and it loads above.</p>
+    </div>
+
+    <button type="button" id="save">Save this code</button>
+
+    <div class="field">
+      <h2>Saved on this phone</h2>
+      <ul id="saved"></ul>
+      <p id="empty">Nothing saved yet. Saved codes stay in this browser only.</p>
+    </div>
+  </section>
+
+  <section id="view-login" role="tabpanel" aria-labelledby="tab-login" hidden>
+    <div class="panel">
+      <div class="code" id="login-code"></div>
+      <div class="caption" id="login-caption"></div>
+      <div class="message" id="login-message" hidden></div>
+    </div>
+    <div class="field">
+      <label for="login-text">Login code</label>
+      <div class="inputrow">
+        <input type="text" id="login-text" autocomplete="off" autocapitalize="characters" autocorrect="off" spellcheck="false" enterkeyhint="done">
+      </div>
+      <p class="hint">Stored on this phone only. It is not part of the website.</p>
+    </div>
+  </section>
+
+  <div id="scanner" hidden>
+    <video id="video" playsinline muted></video>
+    <div class="scanner-bar">
+      <p>Point the camera at a barcode.</p>
+      <button type="button" id="scanner-close">Cancel</button>
+    </div>
+  </div>
+</main>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
+<script src="https://unpkg.com/@zxing/library@0.20.0/umd/index.min.js"></script>
+<script>
+(function () {
+  var KEY = "barcode-maker-v1";
+
+  var input = document.getElementById("text");
+  var savedEl = document.getElementById("saved");
+  var emptyEl = document.getElementById("empty");
+  var tabs = { make: document.getElementById("tab-make"), login: document.getElementById("tab-login") };
+  var views = { make: document.getElementById("view-make"), login: document.getElementById("view-login") };
+
+  var capsBtn = document.getElementById("caps");
+  var keepCase = false; // true while the box holds scanned or saved text in its original case
+  var state = { text: "", tab: "make", saved: [], login: "" };
+  var firstRun = true;
+  try {
+    var stored = JSON.parse(localStorage.getItem(KEY) || "null");
+    if (stored) {
+      firstRun = false;
+      if (stored.tab === "login") state.tab = "login";
+      if (typeof stored.login === "string") state.login = stored.login;
+      if (Array.isArray(stored.saved)) {
+        var seen = {};
+        stored.saved.forEach(function (s) {
+          var t = s && typeof s.text === "string" ? s.text : "";
+          if (t && !seen[t]) { seen[t] = true; state.saved.push({ text: t }); }
+        });
+      }
+    }
+  } catch (e) {}
+
+  function persist() {
+    try { localStorage.setItem(KEY, JSON.stringify({ tab: state.tab, saved: state.saved, login: state.login })); } catch (e) {}
+  }
+
+  // Draws a Code 128 barcode into codeEl. Returns an error sentence, or "" on success.
+  function draw(codeEl, text) {
+    codeEl.innerHTML = "";
+    if (!text) return "Type something below to make a barcode.";
+    if (typeof JsBarcode === "undefined") {
+      return "The barcode library did not load. Check your connection and reopen the page.";
+    }
+    var ok = true;
+    var svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    try {
+      JsBarcode(svg, text, {
+        format: "CODE128", width: 2, height: 110, margin: 20, displayValue: false,
+        background: "#ffffff", lineColor: "#000000",
+        valid: function (v) { ok = v; }
+      });
+    } catch (e) { ok = false; }
+    if (!ok) return "Code 128 cannot encode some of these characters. Remove accents or emoji.";
+    var w = parseFloat(svg.getAttribute("width")), h = parseFloat(svg.getAttribute("height"));
+    if (!svg.getAttribute("viewBox")) svg.setAttribute("viewBox", "0 0 " + w + " " + h);
+    svg.removeAttribute("width");
+    svg.removeAttribute("height");
+    svg.removeAttribute("style");
+    svg.setAttribute("shape-rendering", "crispEdges");
+    svg.setAttribute("role", "img");
+    svg.setAttribute("aria-label", "Code 128 barcode");
+    svg.style.maxWidth = (w * 2.5) + "px";
+    codeEl.appendChild(svg);
+    return "";
+  }
+
+  function show(codeId, captionId, messageId, text, captionText) {
+    var caption = document.getElementById(captionId);
+    var message = document.getElementById(messageId);
+    var err = draw(document.getElementById(codeId), text);
+    message.textContent = err;
+    message.hidden = !err;
+    caption.textContent = err ? "" : captionText;
+  }
+
+  function render() {
+    show("code", "caption", "message", state.text, state.text);
+    capsBtn.hidden = state.text === state.text.toUpperCase();
+  }
+
+  function setTab(name) {
+    state.tab = name;
+    Object.keys(views).forEach(function (k) {
+      views[k].hidden = k !== name;
+      tabs[k].setAttribute("aria-selected", k === name ? "true" : "false");
+    });
+    persist();
+  }
+
+  function renderSaved() {
+    savedEl.innerHTML = "";
+    emptyEl.hidden = state.saved.length > 0;
+    state.saved.forEach(function (item, i) {
+      var li = document.createElement("li");
+      var use = document.createElement("button");
+      use.type = "button"; use.className = "use";
+      use.textContent = item.text;
+      use.addEventListener("click", function () {
+        state.text = item.text; input.value = item.text; firstRun = false;
+        keepCase = item.text !== item.text.toUpperCase();
+        persist(); render();
+        window.scrollTo({ top: 0, behavior: "smooth" });
+      });
+      var del = document.createElement("button");
+      del.type = "button"; del.className = "del";
+      del.textContent = "Remove";
+      del.setAttribute("aria-label", "Remove " + item.text);
+      del.addEventListener("click", function () {
+        state.saved.splice(i, 1); persist(); renderSaved();
+      });
+      li.appendChild(use); li.appendChild(del);
+      savedEl.appendChild(li);
+    });
+  }
+
+  input.value = state.text;
+  input.addEventListener("input", function () {
+    var up = keepCase ? input.value : input.value.toUpperCase();
+    if (!up) keepCase = false;
+    if (up !== input.value) {
+      var pos = input.selectionStart;
+      input.value = up;
+      try { input.setSelectionRange(pos, pos); } catch (e) {}
+    }
+    state.text = up; firstRun = false; persist(); render();
+  });
+  input.addEventListener("keydown", function (e) { if (e.key === "Enter") input.blur(); });
+  document.getElementById("clear").addEventListener("click", function () {
+    state.text = ""; keepCase = false; input.value = ""; firstRun = false; persist(); render(); input.focus();
+  });
+  capsBtn.addEventListener("click", function () {
+    state.text = state.text.toUpperCase(); keepCase = false;
+    input.value = state.text; render();
+  });
+  document.getElementById("save").addEventListener("click", function () {
+    var text = state.text;
+    if (!text) return;
+    state.saved = state.saved.filter(function (s) { return s.text !== text; });
+    state.saved.unshift({ text: text });
+    state.saved = state.saved.slice(0, 30);
+    persist(); renderSaved();
+  });
+  // Scan: the photo comes from a file input (opens the camera on a phone), then is decoded in the page.
+  var photo = document.getElementById("photo");
+  var scanStatus = document.getElementById("scan-status");
+  var NOT_FOUND = "No barcode found in that photo. Get closer, hold the phone square to the barcode in good light, and try again.";
+
+  function loadImage(file) {
+    return new Promise(function (resolve, reject) {
+      var url = URL.createObjectURL(file);
+      var img = new Image();
+      img.onload = function () { URL.revokeObjectURL(url); resolve(img); };
+      img.onerror = function () { URL.revokeObjectURL(url); reject(new Error("image")); };
+      img.src = url;
+    });
+  }
+  function toCanvas(img, maxSide) {
+    var scale = Math.min(1, maxSide / Math.max(img.naturalWidth, img.naturalHeight));
+    var c = document.createElement("canvas");
+    c.width = Math.max(1, Math.round(img.naturalWidth * scale));
+    c.height = Math.max(1, Math.round(img.naturalHeight * scale));
+    c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+    return c;
+  }
+  function detectNative(canvas) {
+    if (typeof BarcodeDetector === "undefined") return Promise.resolve("");
+    try {
+      return new BarcodeDetector().detect(canvas).then(function (found) {
+        return found && found.length ? String(found[0].rawValue || "") : "";
+      }).catch(function () { return ""; });
+    } catch (e) { return Promise.resolve(""); }
+  }
+  function detectZxing(canvas) {
+    if (typeof ZXing === "undefined") return Promise.resolve("");
+    return new Promise(function (resolve) {
+      try {
+        var hints = new Map();
+        hints.set(ZXing.DecodeHintType.TRY_HARDER, true);
+        var reader = new ZXing.BrowserMultiFormatReader(hints);
+        var img = new Image();
+        img.onload = function () {
+          reader.decodeFromImageElement(img).then(function (r) {
+            resolve(r ? r.getText() : "");
+          }).catch(function () { resolve(""); });
+        };
+        img.onerror = function () { resolve(""); };
+        img.src = canvas.toDataURL("image/png");
+      } catch (e) { resolve(""); }
+    });
+  }
+  function readBarcode(img) {
+    var sizes = [1600, 1000, 2400];
+    var i = 0;
+    function next() {
+      if (i >= sizes.length) return Promise.resolve("");
+      var canvas = toCanvas(img, sizes[i++]);
+      return detectNative(canvas).then(function (t) {
+        return t || detectZxing(canvas);
+      }).then(function (t) { return t || next(); });
+    }
+    return next();
+  }
+
+  function loadScanned(text) {
+    state.text = text;
+    keepCase = true;
+    input.value = state.text;
+    render();
+    scanStatus.textContent = "Loaded " + state.text + ".";
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  // Live scan: camera stream in a full-screen overlay, checked a few times a second until a barcode is read.
+  var scanner = document.getElementById("scanner");
+  var video = document.getElementById("video");
+  var stream = null, scanning = false, nativeDetector = null, zxReader = null, zxHints = null;
+  var frame = document.createElement("canvas");
+
+  function stopScan() {
+    scanning = false;
+    if (stream) { stream.getTracks().forEach(function (t) { t.stop(); }); stream = null; }
+    video.srcObject = null;
+    scanner.hidden = true;
+  }
+  function zxingFrame() {
+    if (typeof ZXing === "undefined") return "";
+    var vw = video.videoWidth, vh = video.videoHeight;
+    if (!vw || !vh) return "";
+    var scale = Math.min(1, 900 / Math.max(vw, vh));
+    frame.width = Math.round(vw * scale); frame.height = Math.round(vh * scale);
+    frame.getContext("2d", { willReadFrequently: true }).drawImage(video, 0, 0, frame.width, frame.height);
+    if (!zxReader) {
+      zxReader = new ZXing.MultiFormatReader();
+      zxHints = new Map();
+      zxHints.set(ZXing.DecodeHintType.TRY_HARDER, true);
+    }
+    try {
+      var src = new ZXing.HTMLCanvasElementLuminanceSource(frame);
+      var bmp = new ZXing.BinaryBitmap(new ZXing.HybridBinarizer(src));
+      return zxReader.decode(bmp, zxHints).getText() || "";
+    } catch (e) { return ""; }
+  }
+  function readFrame() {
+    if (nativeDetector) {
+      return nativeDetector.detect(video).then(function (found) {
+        return found && found.length ? String(found[0].rawValue || "") : "";
+      }).catch(function () { return zxingFrame(); });
+    }
+    return Promise.resolve(zxingFrame());
+  }
+  function tick() {
+    if (!scanning) return;
+    if (video.readyState < 2) { setTimeout(tick, 150); return; }
+    readFrame().then(function (text) {
+      if (!scanning) return;
+      if (text) {
+        stopScan();
+        try { if (navigator.vibrate) navigator.vibrate(60); } catch (e) {}
+        loadScanned(text);
+      } else {
+        setTimeout(tick, 150);
+      }
+    });
+  }
+  function startScan() {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      scanStatus.textContent = "This browser cannot open the camera here. Use a photo instead.";
+      return;
+    }
+    scanStatus.textContent = "Opening the camera…";
+    navigator.mediaDevices.getUserMedia({
+      audio: false,
+      video: { facingMode: { ideal: "environment" }, width: { ideal: 1280 }, height: { ideal: 720 } }
+    }).then(function (s) {
+      stream = s;
+      if (nativeDetector === null && typeof BarcodeDetector !== "undefined") {
+        try { nativeDetector = new BarcodeDetector(); } catch (e) { nativeDetector = null; }
+      }
+      video.srcObject = s;
+      scanner.hidden = false;
+      scanning = true;
+      scanStatus.textContent = "Point the camera at a barcode and it loads above.";
+      var p = video.play();
+      if (p && p.catch) p.catch(function () {});
+      tick();
+    }).catch(function () {
+      scanStatus.textContent = "The camera is blocked. Allow camera access for this site in your browser settings, or use a photo instead.";
+    });
+  }
+  document.getElementById("scan").addEventListener("click", startScan);
+  document.getElementById("scanner-close").addEventListener("click", stopScan);
+  document.addEventListener("visibilitychange", function () { if (document.hidden && scanning) stopScan(); });
+
+  photo.addEventListener("change", function () {
+    var file = photo.files && photo.files[0];
+    photo.value = "";
+    if (!file) return;
+    scanStatus.textContent = "Reading the photo…";
+    loadImage(file).then(readBarcode).then(function (text) {
+      if (!text) { scanStatus.textContent = NOT_FOUND; return; }
+      loadScanned(text);
+    }).catch(function () {
+      scanStatus.textContent = "That photo could not be opened. Try taking it again.";
+    });
+  });
+
+  tabs.make.addEventListener("click", function () { setTab("make"); });
+  tabs.login.addEventListener("click", function () { setTab("login"); });
+
+  render();
+  var loginInput = document.getElementById("login-text");
+  function renderLogin() {
+    show("login-code", "login-caption", "login-message", state.login, state.login);
+    if (!state.login) {
+      var m = document.getElementById("login-message");
+      m.textContent = "Enter your login code below to show its barcode here.";
+    }
+  }
+  loginInput.value = state.login;
+  loginInput.addEventListener("input", function () {
+    state.login = loginInput.value.trim(); persist(); renderLogin();
+  });
+  loginInput.addEventListener("keydown", function (e) { if (e.key === "Enter") loginInput.blur(); });
+  renderLogin();
+  renderSaved();
+  setTab(state.tab);
+})();
+</script>
+</body>
+</html>
