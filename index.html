@@ -232,8 +232,9 @@ label.scan {
       <label for="login-text">Login code</label>
       <div class="inputrow">
         <input type="text" id="login-text" autocomplete="off" autocapitalize="characters" autocorrect="off" spellcheck="false" enterkeyhint="done">
+        <button type="button" class="primary" id="login-save">Save</button>
       </div>
-      <p class="hint">Stored on this phone only. It is not part of the website.</p>
+      <p class="hint" id="login-status" aria-live="polite"></p>
     </div>
   </section>
 
@@ -279,7 +280,7 @@ label.scan {
   } catch (e) {}
 
   function persist() {
-    try { localStorage.setItem(KEY, JSON.stringify({ tab: state.tab, saved: state.saved, login: state.login })); } catch (e) {}
+    try { localStorage.setItem(KEY, JSON.stringify({ tab: state.tab, saved: state.saved, login: typeof savedLogin === "string" ? savedLogin : state.login })); } catch (e) {}
   }
 
   // Draws a Code 128 barcode into codeEl. Returns an error sentence, or "" on success.
@@ -565,9 +566,33 @@ label.scan {
     }
   }
   loginInput.value = state.login;
+  var loginStatus = document.getElementById("login-status");
+  var savedLogin = state.login;
+  function loginHint() {
+    var typed = loginInput.value.trim();
+    if (typed === savedLogin) {
+      loginStatus.textContent = savedLogin
+        ? "Saved on this phone. It will be here each time you open the app."
+        : "Type your login code, then tap Save to keep it on this phone.";
+    } else {
+      loginStatus.textContent = typed
+        ? "Not saved yet. Tap Save to keep this code on this phone."
+        : "Tap Save to remove the saved code from this phone.";
+    }
+  }
   loginInput.addEventListener("input", function () {
-    state.login = loginInput.value.trim(); persist(); renderLogin();
+    state.login = loginInput.value.trim(); renderLogin(); loginHint();
   });
+  document.getElementById("login-save").addEventListener("click", function () {
+    state.login = loginInput.value.trim();
+    savedLogin = state.login;
+    var ok = true;
+    try { localStorage.setItem(KEY, JSON.stringify({ tab: state.tab, saved: state.saved, login: savedLogin })); }
+    catch (e) { ok = false; }
+    if (ok) loginHint();
+    else loginStatus.textContent = "This browser would not save the code. Check that it is not in private or incognito mode.";
+  });
+  loginHint();
   loginInput.addEventListener("keydown", function (e) { if (e.key === "Enter") loginInput.blur(); });
   renderLogin();
   renderSaved();
