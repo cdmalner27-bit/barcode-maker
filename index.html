@@ -231,7 +231,6 @@ label.scan {
 
     <div class="field">
       <button type="button" class="primary" id="scan">Scan a barcode with the camera</button>
-      <button type="button" id="speak">Say a barcode</button>
       <label class="scan" for="photo">Use a photo instead</label>
       <input type="file" id="photo" accept="image/*" capture="environment">
       <p class="hint" id="scan-status" aria-live="polite">Point the camera at a barcode and it loads above.</p>
@@ -611,63 +610,6 @@ label.scan {
   });
   document.getElementById("scanner-close").addEventListener("click", function () { scanTarget = null; stopScan(); });
   document.addEventListener("visibilitychange", function () { if (document.hidden && scanning) stopScan(); });
-
-  // Voice: speak the code, it is tidied (capitals, no spaces, number words to digits) and loaded into the box.
-  var speakBtn = document.getElementById("speak");
-  var listening = null;
-  var WORDS = {
-    ZERO: "0", ONE: "1", TWO: "2", THREE: "3", FOUR: "4", FIVE: "5", SIX: "6", SEVEN: "7", EIGHT: "8", NINE: "9",
-    DASH: "-", HYPHEN: "-", MINUS: "-", DOT: ".", POINT: ".", SLASH: "/"
-  };
-  function tidySpoken(t) {
-    return t.toUpperCase().replace(/[,?!]/g, " ").replace(/\.\s*$/, "").split(/\s+/).map(function (w) {
-      return Object.prototype.hasOwnProperty.call(WORDS, w) ? WORDS[w] : w;
-    }).join("");
-  }
-  function stopListening() {
-    if (listening) { try { listening.abort(); } catch (e) {} }
-    listening = null;
-    speakBtn.textContent = "Say a barcode";
-  }
-  speakBtn.addEventListener("click", function () {
-    if (listening) { stopListening(); scanStatus.textContent = "Stopped listening."; return; }
-    var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SR) { scanStatus.textContent = "This browser cannot listen for speech. Open the app in Chrome."; return; }
-    var rec;
-    try { rec = new SR(); } catch (e) { scanStatus.textContent = "Speech could not start on this phone."; return; }
-    rec.lang = "en-GB";
-    rec.interimResults = false;
-    rec.maxAlternatives = 1;
-    rec.onresult = function (e) {
-      var heard = e.results && e.results[0] && e.results[0][0] ? e.results[0][0].transcript : "";
-      var text = tidySpoken(heard);
-      if (!text) { scanStatus.textContent = "Nothing was heard. Tap Say a barcode and try again."; return; }
-      state.text = text; keepCase = false; input.value = text; render();
-      scanStatus.textContent = "Heard " + text + ". Fix it in the box if it is wrong.";
-      window.scrollTo({ top: 0, behavior: "smooth" });
-    };
-    rec.onerror = function (e) {
-      var kind = e && e.error;
-      if (kind === "not-allowed" || kind === "service-not-allowed") {
-        scanStatus.textContent = "The microphone is blocked. Allow microphone access for this site in your browser settings.";
-      } else if (kind === "no-speech") {
-        scanStatus.textContent = "Nothing was heard. Tap Say a barcode and try again.";
-      } else if (kind === "network") {
-        scanStatus.textContent = "Speech needs a signal to work. Try again when you are online.";
-      } else if (kind !== "aborted") {
-        scanStatus.textContent = "Speech did not work that time. Try again.";
-      }
-    };
-    rec.onend = function () { listening = null; speakBtn.textContent = "Say a barcode"; };
-    try {
-      rec.start();
-      listening = rec;
-      speakBtn.textContent = "Listening… tap to stop";
-      scanStatus.textContent = "Listening. Say the letters and numbers one at a time.";
-    } catch (e) {
-      scanStatus.textContent = "Speech could not start. Try again.";
-    }
-  });
 
   photo.addEventListener("change", function () {
     var file = photo.files && photo.files[0];
