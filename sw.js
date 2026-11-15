@@ -15,6 +15,8 @@ self.addEventListener("install", function (e) {
 self.addEventListener("activate", function (e) { e.waitUntil(self.clients.claim()); });
 self.addEventListener("fetch", function (e) {
   if (e.request.method !== "GET") return;
+  // Spotify calls and the sign-in return address are never cached.
+  if (/spotify\.com\//.test(e.request.url) || /[?&](code|error)=/.test(e.request.url)) return;
   e.respondWith(
     fetch(e.request).then(function (res) {
       if (res && (res.ok || res.type === "opaque")) {
