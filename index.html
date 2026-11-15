@@ -200,32 +200,11 @@ label.scan {
 }
 #saved .del { color: var(--muted); }
 #empty, .hint { font-size: 14px; color: var(--muted); margin: 0; }
-/* Spotify play/pause: sits top right, only shown once Spotify is connected on this phone. */
-.topbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 44px; }
-#sp-toggle {
-  width: 44px; height: 44px; padding: 0; flex: none;
-  border-radius: 50%; border: 0;
-  background: #1db954; color: #000;
-  display: flex; align-items: center; justify-content: center;
-}
-#sp-toggle[hidden] { display: none; }
-#sp-toggle svg { width: 22px; height: 22px; fill: currentColor; }
-#sp-toggle:disabled { opacity: 0.6; }
-#sp-msg:empty { display: none; }
-details.field summary { font-size: 14px; font-weight: 500; color: var(--muted); padding: 8px 0; cursor: pointer; }
-details.field { gap: 0; }
-details.field > * + * { margin-top: 6px; }
 </style>
 </head>
 <body>
 <main>
-  <div class="topbar">
-    <h1>Barcode Maker</h1>
-    <button type="button" id="sp-toggle" aria-label="Play or pause Spotify" hidden>
-      <svg viewBox="0 0 24 24" aria-hidden="true"><path id="sp-icon" d="M8 5v14l11-7z"/></svg>
-    </button>
-  </div>
-  <p class="hint" id="sp-msg" aria-live="polite"></p>
+  <h1>Barcode Maker</h1>
 
   <div class="tabs" role="tablist">
     <button type="button" role="tab" id="tab-make" aria-controls="view-make" aria-selected="true">Make</button>
@@ -305,16 +284,6 @@ details.field > * + * { margin-top: 6px; }
       </div>
       <p class="hint" id="login-status" aria-live="polite"></p>
     </div>
-    <details class="field" id="sp-setup">
-      <summary>Spotify button</summary>
-      <label for="sp-client">Spotify Client ID</label>
-      <div class="inputrow">
-        <input type="text" id="sp-client" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" enterkeyhint="done">
-        <button type="button" class="primary" id="sp-connect">Connect</button>
-      </div>
-      <button type="button" id="sp-disconnect" hidden>Disconnect Spotify</button>
-      <p class="hint" id="sp-status" aria-live="polite"></p>
-    </details>
   </section>
 
   <div id="scanner" hidden>
@@ -777,190 +746,6 @@ details.field > * + * { margin-top: 6px; }
   if ("serviceWorker" in navigator) {
     try { navigator.serviceWorker.register("sw.js").catch(function () {}); } catch (e) {}
   }
-})();
-</script>
-<script>
-// Spotify play/pause button. Uses the Spotify Web API with the PKCE sign-in, so no secret is kept in the app.
-// The Client ID and sign-in tokens are stored on this phone only, under their own key.
-(function () {
-  var SKEY = "barcode-maker-spotify";
-  var REDIRECT = location.origin + location.pathname.replace(/index\.html$/, "");
-  var SCOPES = "user-read-playback-state user-modify-playback-state";
-  var PLAY = "M8 5v14l11-7z", PAUSE = "M6 5h4v14H6zM14 5h4v14h-4z";
-
-  var btn = document.getElementById("sp-toggle");
-  var icon = document.getElementById("sp-icon");
-  var msg = document.getElementById("sp-msg");
-  var clientInput = document.getElementById("sp-client");
-  var connectBtn = document.getElementById("sp-connect");
-  var disconnectBtn = document.getElementById("sp-disconnect");
-  var status = document.getElementById("sp-status");
-  var msgTimer = null;
-
-  var sp = {};
-  try { sp = JSON.parse(localStorage.getItem(SKEY) || "{}") || {}; } catch (e) { sp = {}; }
-  function save() { try { localStorage.setItem(SKEY, JSON.stringify(sp)); return true; } catch (e) { return false; } }
-
-  function say(text) {
-    msg.textContent = text;
-    clearTimeout(msgTimer);
-    if (text) msgTimer = setTimeout(function () { msg.textContent = ""; }, 8000);
-  }
-  function setIcon(playing) {
-    icon.setAttribute("d", playing ? PAUSE : PLAY);
-    btn.setAttribute("aria-label", playing ? "Pause Spotify" : "Play Spotify");
-  }
-  function render() {
-    var on = !!sp.refresh;
-    btn.hidden = !on;
-    disconnectBtn.hidden = !on;
-    if (sp.clientId && !clientInput.value) clientInput.value = sp.clientId;
-    if (on) status.textContent = "Connected. The play and pause button is at the top right.";
-    else if (!status.textContent) status.textContent = "Paste your Spotify Client ID and tap Connect. Needs Spotify Premium.";
-  }
-
-  function b64url(bytes) {
-    var str = "";
-    for (var i = 0; i < bytes.length; i++) str += String.fromCharCode(bytes[i]);
-    return btoa(str).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-  }
-  function form(obj) {
-    return Object.keys(obj).map(function (k) { return encodeURIComponent(k) + "=" + encodeURIComponent(obj[k]); }).join("&");
-  }
-  function tokenRequest(body) {
-    return fetch("https://accounts.spotify.com/api/token", {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: form(body)
-    }).then(function (res) {
-      return res.json().catch(function () { return {}; }).then(function (data) {
-        if (!res.ok || !data.access_token) {
-          var err = new Error(data.error_description || data.error || "Spotify sign-in failed.");
-          err.signin = res.status === 400 || res.status === 401;
-          throw err;
-        }
-        sp.access = data.access_token;
-        sp.expires = Date.now() + (data.expires_in || 3600) * 1000;
-        if (data.refresh_token) sp.refresh = data.refresh_token;
-        save();
-      });
-    });
-  }
-
-  function connect() {
-    var id = clientInput.value.trim();
-    if (!/^[0-9a-f]{32}$/i.test(id)) { status.textContent = "That does not look like a Client ID. It is 32 letters and numbers."; return; }
-    if (!window.crypto || !crypto.subtle) { status.textContent = "This browser cannot do the Spotify sign-in. Open the app in Chrome."; return; }
-    var verifier = b64url(crypto.getRandomValues(new Uint8Array(48)));
-    crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier)).then(function (hash) {
-      sp = { clientId: id, verifier: verifier };
-      if (!save()) { status.textContent = "This browser would not save the sign-in. Check that it is not in private or incognito mode."; return; }
-      location.assign("https://accounts.spotify.com/authorize?" + form({
-        client_id: id, response_type: "code", redirect_uri: REDIRECT, scope: SCOPES,
-        code_challenge_method: "S256", code_challenge: b64url(new Uint8Array(hash))
-      }));
-    });
-  }
-
-  function finishSignIn() {
-    var q = new URLSearchParams(location.search);
-    var code = q.get("code"), error = q.get("error");
-    if (!code && !error) return;
-    history.replaceState(null, "", REDIRECT);
-    if (error || !sp.verifier || !sp.clientId) {
-      status.textContent = error === "access_denied" ? "Spotify sign-in was cancelled." : "Spotify sign-in did not finish. Tap Connect to try again.";
-      document.getElementById("sp-setup").open = true;
-      return;
-    }
-    var verifier = sp.verifier;
-    delete sp.verifier;
-    tokenRequest({ grant_type: "authorization_code", code: code, redirect_uri: REDIRECT, client_id: sp.clientId, code_verifier: verifier })
-      .then(function () { status.textContent = ""; render(); refreshIcon(); say("Spotify connected."); })
-      .catch(function (e) { status.textContent = "Spotify sign-in failed: " + e.message; document.getElementById("sp-setup").open = true; });
-  }
-
-  function token() {
-    if (sp.access && sp.expires - Date.now() > 60000) return Promise.resolve(sp.access);
-    return tokenRequest({ grant_type: "refresh_token", refresh_token: sp.refresh, client_id: sp.clientId })
-      .then(function () { return sp.access; })
-      .catch(function (e) {
-        if (e.signin) { delete sp.refresh; delete sp.access; save(); status.textContent = "Spotify signed this phone out. Tap Connect to sign in again."; render(); }
-        throw e;
-      });
-  }
-  // Calls the Spotify Web API. Resolves with { status, data }.
-  function api(method, path) {
-    return token().then(function (t) {
-      return fetch("https://api.spotify.com/v1" + path, { method: method, headers: { Authorization: "Bearer " + t } });
-    }).then(function (res) {
-      if (res.status === 401) { sp.expires = 0; }
-      return res.text().then(function (body) {
-        var data = null;
-        try { data = body ? JSON.parse(body) : null; } catch (e) {}
-        return { status: res.status, data: data };
-      });
-    });
-  }
-  function ok(r) { return r.status >= 200 && r.status < 300; }
-  function explain(r) {
-    var reason = r.data && r.data.error && r.data.error.reason;
-    if (r.status === 403 && reason === "PREMIUM_REQUIRED") return "Spotify says this account is not Premium.";
-    if (r.status === 403) return "Spotify refused. Check your Spotify email is added under User Management in the developer dashboard.";
-    if (r.status === 404) return "Spotify is not open on any device. Open Spotify, then try again.";
-    if (r.status === 429) return "Spotify is busy. Try again in a moment.";
-    if (r.status === 401) return "Spotify sign-in expired. Tap the button again.";
-    return "Spotify did not respond as expected (" + r.status + ").";
-  }
-
-  function refreshIcon() {
-    if (!sp.refresh || !navigator.onLine) return;
-    api("GET", "/me/player").then(function (r) {
-      setIcon(r.status === 200 && r.data && r.data.is_playing === true);
-    }).catch(function () {});
-  }
-
-  function resume() {
-    return api("PUT", "/me/player/play").then(function (r) {
-      if (ok(r) || r.status !== 404) return r;
-      // Nothing is active, so pick a device: this phone first, otherwise the first one listed.
-      return api("GET", "/me/player/devices").then(function (d) {
-        var list = (d.data && d.data.devices || []).filter(function (x) { return x && x.id && !x.is_restricted; });
-        if (!list.length) return r;
-        var pick = list.filter(function (x) { return x.type === "Smartphone"; })[0] || list[0];
-        return api("PUT", "/me/player/play?device_id=" + encodeURIComponent(pick.id));
-      });
-    });
-  }
-
-  function toggle() {
-    if (!navigator.onLine) { say("No signal. The Spotify button needs a connection."); return; }
-    btn.disabled = true;
-    api("GET", "/me/player").then(function (r) {
-      if (r.status !== 200 && r.status !== 204) { say(explain(r)); return; }
-      var playing = r.status === 200 && r.data && r.data.is_playing === true;
-      return (playing ? api("PUT", "/me/player/pause") : resume()).then(function (done) {
-        if (ok(done)) { setIcon(!playing); say(""); }
-        else say(explain(done));
-      });
-    }).catch(function (e) {
-      say(sp.refresh ? "Could not reach Spotify. Check your signal." : "Spotify needs connecting again on the Login tab.");
-    }).then(function () { btn.disabled = false; });
-  }
-
-  btn.addEventListener("click", toggle);
-  connectBtn.addEventListener("click", connect);
-  clientInput.addEventListener("keydown", function (e) { if (e.key === "Enter") clientInput.blur(); });
-  disconnectBtn.addEventListener("click", function () {
-    sp = { clientId: sp.clientId };
-    save();
-    status.textContent = "Disconnected. The button is hidden until you connect again.";
-    render();
-  });
-  document.addEventListener("visibilitychange", function () { if (!document.hidden) refreshIcon(); });
-
-  render();
-  finishSignIn();
-  refreshIcon();
 })();
 </script>
 </body>
