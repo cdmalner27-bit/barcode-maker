@@ -743,6 +743,20 @@ label.scan {
   renderSaved();
   setTab(state.tab);
 
+  // Keep the screen on while the app is showing, so the phone does not lock between scans.
+  // The lock is dropped by the phone whenever the app is hidden, so it is asked for again on return.
+  var wakeLock = null;
+  function keepAwake() {
+    if (!("wakeLock" in navigator) || document.hidden || wakeLock) return;
+    navigator.wakeLock.request("screen").then(function (lock) {
+      wakeLock = lock;
+      lock.addEventListener("release", function () { wakeLock = null; });
+    }).catch(function () {});
+  }
+  document.addEventListener("visibilitychange", keepAwake);
+  document.addEventListener("click", keepAwake);
+  keepAwake();
+
   if ("serviceWorker" in navigator) {
     try { navigator.serviceWorker.register("sw.js").catch(function () {}); } catch (e) {}
   }
