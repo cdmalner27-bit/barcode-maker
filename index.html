@@ -170,7 +170,7 @@ label.scan {
 }
 .scanner-bar p { flex: 1; margin: 0; font-size: 15px; }
 .scanner-bar button { background: #fff; color: #000; border-color: #fff; }
-#run-name {
+#run-name, #hold-name {
   font-family: var(--font-display);
   font-weight: 600;
   font-size: 44px;
@@ -209,6 +209,7 @@ label.scan {
   <div class="tabs" role="tablist">
     <button type="button" role="tab" id="tab-make" aria-controls="view-make" aria-selected="true">Make</button>
     <button type="button" role="tab" id="tab-runs" aria-controls="view-runs" aria-selected="false">Runs</button>
+    <button type="button" role="tab" id="tab-hold" aria-controls="view-hold" aria-selected="false">Hold</button>
     <button type="button" role="tab" id="tab-login" aria-controls="view-login" aria-selected="false">Login</button>
   </div>
 
@@ -270,6 +271,15 @@ label.scan {
     </div>
   </section>
 
+  <section id="view-hold" role="tabpanel" aria-labelledby="tab-hold" hidden>
+    <div class="panel">
+      <div id="hold-name">HOLD</div>
+      <div class="code" id="hold-code"></div>
+      <div class="message" id="hold-message" hidden></div>
+      <div class="caption" id="hold-caption" hidden></div>
+    </div>
+  </section>
+
   <section id="view-login" role="tabpanel" aria-labelledby="tab-login" hidden>
     <div class="panel">
       <div class="code" id="login-code"></div>
@@ -304,8 +314,8 @@ label.scan {
   var input = document.getElementById("text");
   var savedEl = document.getElementById("saved");
   var emptyEl = document.getElementById("empty");
-  var tabs = { make: document.getElementById("tab-make"), runs: document.getElementById("tab-runs"), login: document.getElementById("tab-login") };
-  var views = { make: document.getElementById("view-make"), runs: document.getElementById("view-runs"), login: document.getElementById("view-login") };
+  var tabs = { make: document.getElementById("tab-make"), runs: document.getElementById("tab-runs"), hold: document.getElementById("tab-hold"), login: document.getElementById("tab-login") };
+  var views = { make: document.getElementById("view-make"), runs: document.getElementById("view-runs"), hold: document.getElementById("view-hold"), login: document.getElementById("view-login") };
   var RUNS = [
     { name: "EDP", code: "114000000311" },
     { name: "EPR", code: "114000000313" },
@@ -325,7 +335,7 @@ label.scan {
     var stored = JSON.parse(localStorage.getItem(KEY) || "null");
     if (stored) {
       firstRun = false;
-      if (stored.tab === "login" || stored.tab === "runs") state.tab = stored.tab;
+      if (stored.tab === "login" || stored.tab === "runs" || stored.tab === "hold") state.tab = stored.tab;
       if (Array.isArray(stored.customRuns)) {
         stored.customRuns.forEach(function (r) {
           if (r && typeof r.name === "string" && typeof r.code === "string" && r.name && r.code) {
@@ -627,6 +637,8 @@ label.scan {
   tabs.make.addEventListener("click", function () { setTab("make"); });
   tabs.login.addEventListener("click", function () { setTab("login"); });
   tabs.runs.addEventListener("click", function () { setTab("runs"); });
+  tabs.hold.addEventListener("click", function () { setTab("hold"); });
+  show("hold-code", "hold-caption", "hold-message", "5", "");
 
   var runList = document.getElementById("run-list");
   var runRemove = document.getElementById("run-remove");
