@@ -227,7 +227,7 @@ label.scan {
         <button type="button" id="clear" aria-label="Clear text">Clear</button>
       </div>
       <button type="button" id="caps" hidden>Change to capitals</button>
-      <p class="hint">Code 128. Typed letters become capitals. Scanned text keeps its original case. Best under about 25 characters on a phone screen.</p>
+      <button type="button" id="save">Save this code</button>
     </div>
 
     <div class="field">
@@ -237,7 +237,6 @@ label.scan {
       <p class="hint" id="scan-status" aria-live="polite">Point the camera at a barcode and it loads above.</p>
     </div>
 
-    <button type="button" id="save">Save this code</button>
 
     <div class="field">
       <h2>Saved on this phone</h2>
@@ -460,9 +459,9 @@ label.scan {
   document.getElementById("save").addEventListener("click", function () {
     var text = state.text;
     if (!text) return;
-    state.saved = state.saved.filter(function (s) { return s.text !== text; });
-    state.saved.unshift({ text: text });
-    state.saved = state.saved.slice(0, 30);
+    if (state.saved.some(function (s) { return s.text === text; })) return;
+    state.saved.push({ text: text });
+    state.saved = state.saved.slice(-30);
     persist(); renderSaved();
   });
   // Scan: the photo comes from a file input (opens the camera on a phone), then is decoded in the page.
