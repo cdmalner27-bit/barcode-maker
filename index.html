@@ -452,6 +452,13 @@ label.scan {
       del.setAttribute("aria-label", "Remove " + item.text);
       del.addEventListener("click", function () {
         state.saved.splice(i, 1);
+        // Show the next saved code (or the one above if this was the last); clear the box if none are left.
+        var next = state.saved[i] || state.saved[i - 1];
+        state.text = next ? next.text : "";
+        input.value = state.text; firstRun = false;
+        keepCase = !!next && next.text !== next.text.toUpperCase();
+        render();
+        window.scrollTo({ top: 0, behavior: "smooth" });
         state.deleted = state.deleted.filter(function (d) { return d.text !== item.text; });
         state.deleted.unshift({ text: item.text });
         state.deleted = state.deleted.slice(0, 50);
