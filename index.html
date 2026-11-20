@@ -68,7 +68,7 @@ main {
   gap: 16px;
 }
 section { display: flex; flex-direction: column; gap: 16px; }
-section[hidden] { display: none; }
+section[hidden], .panel[hidden] { display: none; }
 h1 {
   font-family: var(--font-display);
   font-weight: 600;
@@ -189,16 +189,17 @@ label.scan {
 #view-runs .field > input { flex: none; }
 .runs button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
 .tabs { display: flex; gap: 8px; }
-.tabs button { flex: 1; padding: 10px 6px; }
+.tabs button { flex: 1; min-width: 0; padding: 10px 2px; font-size: 14px; }
 .tabs button[aria-selected="true"] { background: var(--ink); color: var(--bg); border-color: var(--ink); }
-#saved { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
-#saved li { display: flex; gap: 6px; }
-#saved .use {
+#saved, .codelist { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+#saved li, .codelist li { display: flex; gap: 6px; }
+#saved .use, .codelist .use {
   flex: 1; min-width: 0; text-align: left;
   font-family: var(--font-mono); font-size: 15px;
   overflow-wrap: anywhere;
 }
-#saved .del { color: var(--muted); }
+.codelist .use[aria-current="true"] { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+#saved .del, .codelist .del { color: var(--muted); }
 #empty, .hint { font-size: 14px; color: var(--muted); margin: 0; }
 </style>
 </head>
@@ -211,6 +212,7 @@ label.scan {
     <button type="button" role="tab" id="tab-runs" aria-controls="view-runs" aria-selected="false">Runs</button>
     <button type="button" role="tab" id="tab-hold" aria-controls="view-hold" aria-selected="false">Hold</button>
     <button type="button" role="tab" id="tab-login" aria-controls="view-login" aria-selected="false">Login</button>
+    <button type="button" role="tab" id="tab-deleted" aria-controls="view-deleted" aria-selected="false">Deleted</button>
   </div>
 
   <section id="view-make" role="tabpanel" aria-labelledby="tab-make">
@@ -279,6 +281,20 @@ label.scan {
     </div>
   </section>
 
+  <section id="view-deleted" role="tabpanel" aria-labelledby="tab-deleted" hidden>
+    <div class="panel" id="deleted-panel" aria-live="polite">
+      <div class="code" id="deleted-code"></div>
+      <div class="caption" id="deleted-caption"></div>
+      <div class="message" id="deleted-message" hidden></div>
+    </div>
+    <div class="field">
+      <h2>Deleted codes, newest first</h2>
+      <ul class="codelist" id="deleted-list"></ul>
+      <p class="hint" id="deleted-empty">Codes you remove from your saved list appear here.</p>
+      <button type="button" id="deleted-clear" hidden>Empty this list</button>
+    </div>
+  </section>
+
   <section id="view-login" role="tabpanel" aria-labelledby="tab-login" hidden>
     <div class="panel">
       <div class="code" id="login-code"></div>
@@ -313,8 +329,8 @@ label.scan {
   var input = document.getElementById("text");
   var savedEl = document.getElementById("saved");
   var emptyEl = document.getElementById("empty");
-  var tabs = { make: document.getElementById("tab-make"), runs: document.getElementById("tab-runs"), hold: document.getElementById("tab-hold"), login: document.getElementById("tab-login") };
-  var views = { make: document.getElementById("view-make"), runs: document.getElementById("view-runs"), hold: document.getElementById("view-hold"), login: document.getElementById("view-login") };
+  var tabs = { make: document.getElementById("tab-make"), runs: document.getElementById("tab-runs"), hold: document.getElementById("tab-hold"), login: document.getElementById("tab-login"), deleted: document.getElementById("tab-deleted") };
+  var views = { make: document.getElementById("view-make"), runs: document.getElementById("view-runs"), hold: document.getElementById("view-hold"), login: document.getElementById("view-login"), deleted: document.getElementById("view-deleted") };
   var RUNS = [
     { name: "EDP", code: "114000000311" },
     { name: "EPR", code: "114000000313" },
@@ -328,13 +344,13 @@ label.scan {
 
   var capsBtn = document.getElementById("caps");
   var keepCase = false; // true while the box holds scanned or saved text in its original case
-  var state = { text: "", tab: "make", saved: [], login: "", run: "EDP", customRuns: [] };
+  var state = { text: "", tab: "make", saved: [], login: "", run: "EDP", customRuns: [], deleted: [] };
   var firstRun = true;
   try {
     var stored = JSON.parse(localStorage.getItem(KEY) || "null");
     if (stored) {
       firstRun = false;
-      if (stored.tab === "login" || stored.tab === "runs" || stored.tab === "hold") state.tab = stored.tab;
+      if (stored.tab === "login" || stored.tab === "runs" || stored.tab === "hold" || stored.tab === "deleted") state.tab = stored.tab;
       if (Array.isArray(stored.customRuns)) {
         stored.customRuns.forEach(function (r) {
           if (r && typeof r.name === "string" && typeof r.code === "string" && r.name && r.code) {
@@ -343,6 +359,11 @@ label.scan {
         });
       }
       if (typeof stored.run === "string") state.run = stored.run;
+      if (Array.isArray(stored.deleted)) {
+        stored.deleted.forEach(function (d) {
+          if (d && typeof d.text === "string" && d.text) state.deleted.push({ text: d.text });
+        });
+      }
       if (typeof stored.login === "string") state.login = stored.login;
       if (Array.isArray(stored.saved)) {
         var seen = {};
@@ -355,7 +376,7 @@ label.scan {
   } catch (e) {}
 
   function persist() {
-    try { localStorage.setItem(KEY, JSON.stringify({ tab: state.tab, saved: state.saved, run: state.run, customRuns: state.customRuns, login: typeof savedLogin === "string" ? savedLogin : state.login })); } catch (e) {}
+    try { localStorage.setItem(KEY, JSON.stringify({ tab: state.tab, saved: state.saved, run: state.run, customRuns: state.customRuns, deleted: state.deleted, login: typeof savedLogin === "string" ? savedLogin : state.login })); } catch (e) {}
   }
 
   // Draws a Code 128 barcode into codeEl. Returns an error sentence, or "" on success.
@@ -430,12 +451,60 @@ label.scan {
       del.textContent = "Remove";
       del.setAttribute("aria-label", "Remove " + item.text);
       del.addEventListener("click", function () {
-        state.saved.splice(i, 1); persist(); renderSaved();
+        state.saved.splice(i, 1);
+        state.deleted = state.deleted.filter(function (d) { return d.text !== item.text; });
+        state.deleted.unshift({ text: item.text });
+        state.deleted = state.deleted.slice(0, 50);
+        deletedPick = item.text;
+        persist(); renderSaved(); renderDeleted();
       });
       li.appendChild(use); li.appendChild(del);
       savedEl.appendChild(li);
     });
   }
+
+  // Deleted tab: codes removed from the saved list, newest at the top. Tap one to show it; Restore puts it back.
+  var deletedPick = null;
+  var deletedList = document.getElementById("deleted-list");
+  var deletedClear = document.getElementById("deleted-clear");
+  function renderDeleted() {
+    deletedList.innerHTML = "";
+    var has = state.deleted.length > 0;
+    document.getElementById("deleted-empty").hidden = has;
+    deletedClear.hidden = !has;
+    document.getElementById("deleted-panel").hidden = !has;
+    if (!has) { deletedPick = null; return; }
+    if (!state.deleted.some(function (d) { return d.text === deletedPick; })) deletedPick = state.deleted[0].text;
+    show("deleted-code", "deleted-caption", "deleted-message", deletedPick, deletedPick);
+    state.deleted.forEach(function (item, i) {
+      var li = document.createElement("li");
+      var use = document.createElement("button");
+      use.type = "button"; use.className = "use";
+      use.textContent = item.text;
+      if (item.text === deletedPick) use.setAttribute("aria-current", "true");
+      use.addEventListener("click", function () {
+        deletedPick = item.text; renderDeleted();
+        window.scrollTo({ top: 0, behavior: "smooth" });
+      });
+      var back = document.createElement("button");
+      back.type = "button"; back.className = "del";
+      back.textContent = "Restore";
+      back.setAttribute("aria-label", "Restore " + item.text + " to saved codes");
+      back.addEventListener("click", function () {
+        state.deleted.splice(i, 1);
+        if (!state.saved.some(function (s) { return s.text === item.text; })) {
+          state.saved.push({ text: item.text });
+          state.saved = state.saved.slice(-30);
+        }
+        persist(); renderSaved(); renderDeleted();
+      });
+      li.appendChild(use); li.appendChild(back);
+      deletedList.appendChild(li);
+    });
+  }
+  deletedClear.addEventListener("click", function () {
+    state.deleted = []; persist(); renderDeleted();
+  });
 
   input.value = state.text;
   input.addEventListener("input", function () {
@@ -637,6 +706,8 @@ label.scan {
   tabs.login.addEventListener("click", function () { setTab("login"); });
   tabs.runs.addEventListener("click", function () { setTab("runs"); });
   tabs.hold.addEventListener("click", function () { setTab("hold"); });
+  tabs.deleted.addEventListener("click", function () { setTab("deleted"); });
+  renderDeleted();
   show("hold-code", "hold-caption", "hold-message", "5", "");
 
   var runList = document.getElementById("run-list");
@@ -743,7 +814,7 @@ label.scan {
     state.login = loginInput.value.trim();
     savedLogin = state.login;
     var ok = true;
-    try { localStorage.setItem(KEY, JSON.stringify({ tab: state.tab, saved: state.saved, run: state.run, customRuns: state.customRuns, login: savedLogin })); }
+    try { localStorage.setItem(KEY, JSON.stringify({ tab: state.tab, saved: state.saved, run: state.run, customRuns: state.customRuns, deleted: state.deleted, login: savedLogin })); }
     catch (e) { ok = false; }
     if (ok) loginHint();
     else loginStatus.textContent = "This browser would not save the code. Check that it is not in private or incognito mode.";
